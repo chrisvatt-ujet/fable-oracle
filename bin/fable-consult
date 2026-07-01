@@ -1,0 +1,135 @@
+#!/usr/bin/env bash
+# fable-consult — consult the Fable oracle from a coding agent (codex).
+#
+# Usage:
+#   fable-consult <direction|decide|unblock|review> [options] [--brief FILE]
+#   echo "brief text" | fable-consult decide --title "cache strategy"
+#
+# Options:
+#   --brief FILE     Read the consult brief from FILE (default: stdin)
+#   --title TEXT     Short title for the ledger entry
+#   --task-dir DIR   State directory (default: $PWD/.fable-oracle)
+#   --new            Force a fresh oracle session (re-briefed from ledger tail)
+#
+# Env:
+#   FABLE_MODEL      Model id (default: claude-fable-5)
+#   FABLE_MAX_TURNS  Max agent turns per consult (default: 25)
+#
+# Exit codes: 0 = consult returned, 2 = usage error, 3 = claude call failed.
+set -euo pipefail
+
+die() { echo "fable-consult: $*" >&2; exit 2; }
+
+TYPE="${1:-}"
+case "$TYPE" in
+  direction|decide|unblock|review) shift ;;
+  *) die "first arg must be one of: direction decide unblock review" ;;
+esac
+
+BRIEF_FILE="" TITLE="" FORCE_NEW=0
+TASK_DIR="${FABLE_ORACLE_DIR:-$PWD/.fable-oracle}"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --brief)    BRIEF_FILE="$2"; shift 2 ;;
+    --title)    TITLE="$2"; shift 2 ;;
+    --task-dir) TASK_DIR="$2"; shift 2 ;;
+    --new)      FORCE_NEW=1; shift ;;
+    *) die "unknown option: $1" ;;
+  esac
+done
+
+if [[ -n "$BRIEF_FILE" ]]; then
+  [[ -r "$BRIEF_FILE" ]] || die "cannot read brief file: $BRIEF_FILE"
+  BRIEF="$(cat "$BRIEF_FILE")"
+else
+  [[ -t 0 ]] && die "no --brief file and stdin is a tty; pipe the brief in"
+  BRIEF="$(cat)"
+fi
+[[ -n "${BRIEF// /}" ]] || die "brief is empty"
+
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && pwd)"
+CHARTER="$SCRIPT_DIR/../prompts/oracle-charter.md"
+[[ -r "$CHARTER" ]] || die "oracle charter not found at $CHARTER"
+
+mkdir -p "$TASK_DIR"
+STATE="$TASK_DIR/session.json"
+LEDGER="$TASK_DIR/LEDGER.md"
+
+SESSION_ID="" CONSULT_N=1
+if [[ -r "$STATE" ]]; then
+  CONSULT_N="$(python3 -c "import json;print(json.load(open('$STATE')).get('consults',0)+1)" 2>/dev/null || echo 1)"
+  if [[ $FORCE_NEW -eq 0 ]]; then
+    SESSION_ID="$(python3 -c "import json;print(json.load(open('$STATE')).get('session_id',''))" 2>/dev/null || true)"
+  fi
+fi
+
+MODEL="${FABLE_MODEL:-claude-fable-5}"
+MAX_TURNS="${FABLE_MAX_TURNS:-25}"
+ALLOWED_TOOLS="Read Grep Glob Bash(rp:*) Bash(rg:*) Bash(ls:*) Bash(git diff:*) Bash(git log:*) Bash(git show:*) Bash(git status:*)"
+
+HEADER="== FABLE ORACLE CONSULT ==
+consult: #$CONSULT_N
+type: $TYPE
+title: ${TITLE:-untitled}
+repo: $PWD
+"
+
+build_message() {  # $1 = 1 when session is fresh
+  if [[ "$1" == "1" ]]; then
+    printf '%s\n\n== END CHARTER ==\n\n' "$(cat "$CHARTER")"
+    if [[ -r "$LEDGER" ]]; then
+      printf 'This is a re-briefed session. Ledger tail from prior consults:\n\n%s\n\n== END LEDGER ==\n\n' \
+        "$(tail -n 250 "$LEDGER")"
+    fi
+  fi
+  printf '%s\n%s\n' "$HEADER" "$BRIEF"
+}
+
+run_claude() {  # $1 = "" for new session, else session id to resume
+  local args=(-p --model "$MODEL" --output-format json --max-turns "$MAX_TURNS" --allowedTools "$ALLOWED_TOOLS")
+  local fresh=1
+  [[ -n "$1" ]] && { args+=(--resume "$1"); fresh=0; }
+  build_message "$fresh" | claude "${args[@]}" 2>/dev/null
+}
+
+OUT=""
+if [[ -n "$SESSION_ID" ]]; then
+  OUT="$(run_claude "$SESSION_ID" || true)"
+fi
+if [[ -z "$OUT" ]]; then
+  # No prior session, or resume failed: start fresh with charter (+ ledger tail if any).
+  SESSION_ID=""
+  OUT="$(run_claude "")" || { echo "fable-consult: claude invocation failed" >&2; exit 3; }
+fi
+[[ -n "$OUT" ]] || { echo "fable-consult: empty response from claude" >&2; exit 3; }
+
+RESULT="$(printf '%s' "$OUT" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+if d.get('is_error'): sys.exit('claude returned an error: '+str(d.get('result'))[:500])
+print(d['session_id']+'\t', end='')
+print(d.get('result',''))" )" || { echo "fable-consult: could not parse claude output" >&2; exit 3; }
+
+NEW_SESSION_ID="${RESULT%%$'\t'*}"
+RESPONSE="${RESULT#*$'\t'}"
+
+python3 - "$STATE" "$NEW_SESSION_ID" "$CONSULT_N" <<'EOF'
+import json, sys
+path, sid, n = sys.argv[1], sys.argv[2], int(sys.argv[3])
+json.dump({"session_id": sid, "consults": n}, open(path, "w"), indent=2)
+EOF
+
+{
+  echo ""
+  echo "## Consult #$CONSULT_N — $TYPE — ${TITLE:-untitled} — $(date '+%Y-%m-%d %H:%M')"
+  echo ""
+  echo "### Brief"
+  echo ""
+  printf '%s\n' "$BRIEF"
+  echo ""
+  echo "### Oracle response"
+  echo ""
+  printf '%s\n' "$RESPONSE"
+} >> "$LEDGER"
+
+printf '%s\n' "$RESPONSE"

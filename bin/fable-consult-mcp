@@ -1,0 +1,123 @@
+#!/usr/bin/env python3
+"""Minimal MCP stdio server exposing fable-consult as a tool.
+
+Register in codex config.toml (install.sh does this):
+    [mcp_servers.fable]
+    command = "/path/to/fable-oracle/bin/fable-consult-mcp"
+    tool_timeout_sec = 900
+    enabled = true
+"""
+import json
+import os
+import subprocess
+import sys
+
+SHIM = os.path.join(os.path.dirname(os.path.realpath(__file__)), "fable-consult")
+
+TOOL = {
+    "name": "fable_consult",
+    "description": (
+        "Consult Fable, the persistent per-task oracle (a stronger reasoning model), per the "
+        "fable-oracle skill's protocol. Use consult_type 'direction' to open a task (triage/plan), "
+        "'decide' at a fork between options, 'unblock' after 2 failed attempts or user "
+        "dissatisfaction, 'review' to verify completed work (send diff + pasted test output). "
+        "The brief must be dense and grounded: task, state with file:line evidence, ONE sharp "
+        "question, constraints. Returns Fable's response ending in a structured "
+        "VERDICT/DIRECTIVES/RESEARCH_NEEDED/CHECKPOINTS block to follow literally. "
+        "Session state and ledger live in <task_dir>/.fable-oracle/."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "consult_type": {
+                "type": "string",
+                "enum": ["direction", "decide", "unblock", "review"],
+                "description": "Consult type per the fable-oracle protocol.",
+            },
+            "brief": {
+                "type": "string",
+                "description": "The consult brief (markdown). Dense, grounded, one sharp question.",
+            },
+            "task_dir": {
+                "type": "string",
+                "description": "Absolute path to the repo root (holds .fable-oracle/ state).",
+            },
+            "title": {
+                "type": "string",
+                "description": "Short title for the ledger entry.",
+            },
+            "new_session": {
+                "type": "boolean",
+                "description": "Rotate to a fresh oracle session re-briefed from the ledger (rare).",
+            },
+        },
+        "required": ["consult_type", "brief", "task_dir"],
+    },
+}
+
+
+def reply(msg_id, result=None, error=None):
+    out = {"jsonrpc": "2.0", "id": msg_id}
+    if error is not None:
+        out["error"] = error
+    else:
+        out["result"] = result
+    sys.stdout.write(json.dumps(out) + "\n")
+    sys.stdout.flush()
+
+
+def run_consult(args):
+    task_dir = args["task_dir"]
+    if not os.path.isdir(task_dir):
+        return f"error: task_dir does not exist: {task_dir}", True
+    cmd = [SHIM, args["consult_type"]]
+    if args.get("title"):
+        cmd += ["--title", args["title"]]
+    if args.get("new_session"):
+        cmd += ["--new"]
+    try:
+        proc = subprocess.run(
+            cmd, input=args["brief"], capture_output=True, text=True,
+            cwd=task_dir, timeout=840,
+        )
+    except subprocess.TimeoutExpired:
+        return "error: consult timed out after 840s", True
+    if proc.returncode != 0:
+        return f"error (exit {proc.returncode}): {proc.stderr.strip()[:2000]}", True
+    return proc.stdout, False
+
+
+def main():
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            msg = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        method, msg_id = msg.get("method"), msg.get("id")
+        if method == "initialize":
+            reply(msg_id, {
+                "protocolVersion": msg.get("params", {}).get("protocolVersion", "2025-06-18"),
+                "capabilities": {"tools": {}},
+                "serverInfo": {"name": "fable-oracle", "version": "1.0.0"},
+            })
+        elif method == "tools/list":
+            reply(msg_id, {"tools": [TOOL]})
+        elif method == "tools/call":
+            params = msg.get("params", {})
+            if params.get("name") != "fable_consult":
+                reply(msg_id, error={"code": -32602, "message": "unknown tool"})
+                continue
+            text, is_err = run_consult(params.get("arguments", {}))
+            reply(msg_id, {"content": [{"type": "text", "text": text}], "isError": is_err})
+        elif method == "ping":
+            reply(msg_id, {})
+        elif msg_id is not None:
+            reply(msg_id, error={"code": -32601, "message": f"method not found: {method}"})
+        # notifications (no id) are ignored
+
+
+if __name__ == "__main__":
+    main()
