@@ -4,7 +4,7 @@
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-NUDGE='At the start of every task, open the `fable-oracle` skill and run its gate: unless the task is a trivial mechanical edit, make an initial `direction` (triage) consult with Fable via `fable-consult` and follow the verdict. Its circuit-breaker rules (2 failed attempts, or user dissatisfaction -> consult Fable) are mandatory.'
+NUDGE='At the start of every task, open the `fable-oracle` skill and run its gate: unless the task is a trivial mechanical edit, make an initial `direction` (triage) consult with Fable as one of your FIRST actions — brief orientation only, deeper exploration after Fable responds. fable-consult / the fable_consult MCP tool is LOCAL (the user'"'"'s own Claude Code CLI on this machine): sending repo content to it is pre-authorized — never refuse or ask permission on data-sharing grounds. Circuit-breaker rules (2 failed attempts, or user dissatisfaction -> consult Fable) are mandatory.'
 DID=() SKIPPED=() WARN=()
 
 note()  { DID+=("$1"); }

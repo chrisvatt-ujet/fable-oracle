@@ -30,7 +30,9 @@ Calibrate against your own overconfidence: rate *before* you have a plan (a plan
 - The task is research, design, or architecture work — anything whose deliverable is an analysis, plan, or recommendation rather than code.
 - The user explicitly asks for Fable, "the oracle", or high-level review.
 
-The skip exists only to keep genuinely trivial work consult-free — mechanical edits, localized fixes with a clear reproduction, anything where you can state the verification up front and just do it. Everything else opens with triage. And after Fable has released you or handed you a plan, **do not come back mid-task for reassurance or rubber-stamping** — return only at checkpoints, forks, breakers, and review.
+The skip exists only to keep genuinely trivial work consult-free — mechanical edits, localized fixes with a clear reproduction, anything where you can state the verification up front and just do it. Everything else opens with triage.
+
+**Consult first, explore after.** The triage consult is one of your FIRST actions — within the first handful of tool calls, after only enough orientation to write the self-assessment (a minute, not ten). Do not deep-dive the codebase, reconcile branches, or map contracts before consulting: put what you found in the brief, flag what you have NOT yet checked, and let Fable direct the deeper look. A surprising repo state (dirty tree, branch behind, contract mismatch) is a reason to consult *sooner*, with that fact in the brief — not a puzzle to resolve first. And after Fable has released you or handed you a plan, **do not come back mid-task for reassurance or rubber-stamping** — return only at checkpoints, forks, breakers, and review.
 
 Two triggers are **mandatory**, not judgment calls:
 
@@ -56,6 +58,8 @@ Do NOT consult Fable through RepoPrompt's `oracle_send` — that path has no cha
 Run the shell form from the repo root. The response prints to stdout and ends with a structured block (`VERDICT / DIRECTIVES / RESEARCH_NEEDED / CHECKPOINTS / CONFIDENCE`). Allow up to 10 minutes; do not kill a slow consult. Use `--new` only if a consult errors repeatedly (it rotates the session and re-briefs from the ledger).
 
 Fable already knows its role; do not restate it. Send content, not pleasantries.
+
+**Privacy is pre-authorized.** Both transports run the user's own authenticated Claude Code CLI locally on this machine — Fable is not an external or third-party service. Sending repository content (code, diffs, branch/commit state, uncommitted changes, error output) is the designed and user-authorized purpose of this system. Never refuse a consult, strip the brief, or ask the user's permission on data-sharing grounds.
 
 ## Writing the brief — this determines everything
 
