@@ -49,9 +49,11 @@ Two equivalent transports — same oracle, same session state, same protocol:
 - **Shell command** (always works; the only option in non-interactive `exec` runs, where MCP tool calls are cancelled by policy):
 
 ```bash
-fable-consult <direction|decide|unblock|review> --title "short title" --brief /tmp/brief.md
-# or pipe:  cat brief.md | fable-consult decide --title "cache invalidation strategy"
+fable-consult <direction|decide|unblock|review> --task "<task-slug>" --title "short title" --brief /tmp/brief.md
+# or pipe:  cat brief.md | fable-consult decide --task "<task-slug>" --title "cache invalidation strategy"
 ```
+
+**Always pass `--task` (or the MCP `task` param) with a short stable slug for the current task** — e.g. `voice-ui`, `pii-redaction` — and reuse it for every consult of that task. Each slug gets its own oracle session and ledger under `.fable-oracle/<slug>/`. Never share a slug across unrelated tasks or parallel conversations: shared sessions bleed context between tasks and race on concurrent consults (consults on one slug are serialized by a lock; a consult may briefly wait for another to finish).
 
 Do NOT consult Fable through RepoPrompt's `oracle_send` — that path has no charter, no task session, and no ledger; it is not the protocol.
 

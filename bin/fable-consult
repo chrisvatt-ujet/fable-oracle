@@ -26,17 +26,24 @@ case "$TYPE" in
   *) die "first arg must be one of: direction decide unblock review" ;;
 esac
 
-BRIEF_FILE="" TITLE="" FORCE_NEW=0
+BRIEF_FILE="" TITLE="" FORCE_NEW=0 TASK_SLUG="${FABLE_TASK:-}"
 TASK_DIR="${FABLE_ORACLE_DIR:-$PWD/.fable-oracle}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --brief)    BRIEF_FILE="$2"; shift 2 ;;
     --title)    TITLE="$2"; shift 2 ;;
+    --task)     TASK_SLUG="$2"; shift 2 ;;
     --task-dir) TASK_DIR="$2"; shift 2 ;;
     --new)      FORCE_NEW=1; shift ;;
     *) die "unknown option: $1" ;;
   esac
 done
+# Each distinct task gets its own oracle session + ledger; parallel tasks in
+# one repo must not share a session (context bleed + concurrent-resume races).
+if [[ -n "$TASK_SLUG" ]]; then
+  TASK_SLUG="$(printf '%s' "$TASK_SLUG" | tr -c 'a-zA-Z0-9._-' '-')"
+  TASK_DIR="$TASK_DIR/$TASK_SLUG"
+fi
 
 if [[ -n "$BRIEF_FILE" ]]; then
   [[ -r "$BRIEF_FILE" ]] || die "cannot read brief file: $BRIEF_FILE"
@@ -54,6 +61,17 @@ CHARTER="$SCRIPT_DIR/../prompts/oracle-charter.md"
 mkdir -p "$TASK_DIR"
 STATE="$TASK_DIR/session.json"
 LEDGER="$TASK_DIR/LEDGER.md"
+ERRLOG="$TASK_DIR/last-error.log"
+
+# Serialize consults per task: concurrent resumes of one session corrupt/race.
+LOCKDIR="$TASK_DIR/.consult.lock"
+LOCK_ACQUIRED=0
+for _ in $(seq 1 60); do
+  if mkdir "$LOCKDIR" 2>/dev/null; then LOCK_ACQUIRED=1; break; fi
+  sleep 5
+done
+[[ $LOCK_ACQUIRED -eq 1 ]] || die "another consult has held this task's lock for 5+ min; if stale, remove $LOCKDIR"
+trap 'rmdir "$LOCKDIR" 2>/dev/null' EXIT
 
 SESSION_ID="" CONSULT_N=1
 if [[ -r "$STATE" ]]; then
@@ -89,7 +107,8 @@ run_claude() {  # $1 = "" for new session, else session id to resume
   local args=(-p --model "$MODEL" --output-format json --max-turns "$MAX_TURNS" --allowedTools "$ALLOWED_TOOLS")
   local fresh=1
   [[ -n "$1" ]] && { args+=(--resume "$1"); fresh=0; }
-  build_message "$fresh" | claude "${args[@]}" 2>/dev/null
+  { echo "=== $(date '+%Y-%m-%d %H:%M:%S') consult #$CONSULT_N type=$TYPE resume=${1:-none}"; } >> "$ERRLOG"
+  build_message "$fresh" | claude "${args[@]}" 2>>"$ERRLOG"
 }
 
 OUT=""
@@ -99,7 +118,11 @@ fi
 if [[ -z "$OUT" ]]; then
   # No prior session, or resume failed: start fresh with charter (+ ledger tail if any).
   SESSION_ID=""
-  OUT="$(run_claude "")" || { echo "fable-consult: claude invocation failed" >&2; exit 3; }
+  OUT="$(run_claude "")" || {
+    echo "fable-consult: claude invocation failed. Diagnostics ($ERRLOG):" >&2
+    tail -n 6 "$ERRLOG" >&2 2>/dev/null
+    exit 3
+  }
 fi
 [[ -n "$OUT" ]] || { echo "fable-consult: empty response from claude" >&2; exit 3; }
 

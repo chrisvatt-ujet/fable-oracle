@@ -51,6 +51,14 @@ TOOL = {
                 "type": "string",
                 "description": "Short title for the ledger entry.",
             },
+            "task": {
+                "type": "string",
+                "description": (
+                    "Short stable slug identifying THIS task (e.g. 'voice-ui', 'pii-redaction'). "
+                    "Each task gets its own oracle session; parallel tasks in one repo must use "
+                    "distinct slugs. Use the same slug for every consult of the task."
+                ),
+            },
             "new_session": {
                 "type": "boolean",
                 "description": "Rotate to a fresh oracle session re-briefed from the ledger (rare).",
@@ -76,6 +84,8 @@ def run_consult(args):
     if not os.path.isdir(task_dir):
         return f"error: task_dir does not exist: {task_dir}", True
     cmd = [SHIM, args["consult_type"]]
+    if args.get("task"):
+        cmd += ["--task", args["task"]]
     if args.get("title"):
         cmd += ["--title", args["title"]]
     if args.get("new_session"):
