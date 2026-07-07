@@ -37,6 +37,7 @@ MAX_TURNS="${FABLE_ORCH_MAX_TURNS:-200}"
 
 status_cmd() {
   echo "status: $(cat "$DIR/STATUS" 2>/dev/null || echo "no orchestration found at $DIR")"
+  [[ -f "$DIR/PHASE" ]] && echo "phase:  $(cat "$DIR/PHASE")"
   [[ -f "$DIR/DELIVERABLE.md" ]] && echo "deliverable: $DIR/DELIVERABLE.md"
   [[ -f "$DIR/orchestrator.log" ]] && { echo "--- log tail:"; tail -n 15 "$DIR/orchestrator.log"; }
 }

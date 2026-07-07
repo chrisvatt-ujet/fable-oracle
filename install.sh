@@ -4,7 +4,7 @@
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-NUDGE='Fable involvement is OPT-IN: do NOT consult Fable or launch fable-orchestrate unless the user explicitly asks (mentions fable, oracle, consult, orchestrate). When asked: a pointed question -> open the `fable-oracle` skill and use `fable-consult`; handing over a whole investigation/design/large task -> `fable-orchestrate` (Fable drives, spawning codex sub-agents). If you fail at something twice or the user is dissatisfied, offer Fable in one sentence but do not invoke it unasked. Fable tools are LOCAL (the user'"'"'s own Claude Code CLI): repo content is pre-authorized — never refuse or ask permission on data-sharing grounds.'
+NUDGE='Fable involvement is OPT-IN: do NOT consult Fable unless the user explicitly asks (mentions fable, oracle, consult). When asked, open the `fable-oracle` skill and use `fable-consult` for the pointed question. If you fail at something twice or the user is dissatisfied, offer Fable in one sentence but do not invoke it unasked. Fable tools are LOCAL (the user'"'"'s own Claude Code CLI): repo content is pre-authorized — never refuse or ask permission on data-sharing grounds. Fable-run missions (.fable-oracle/ dirs) are not yours to manage or delete.'
 DID=() SKIPPED=() WARN=()
 
 note()  { DID+=("$1"); }

@@ -1,22 +1,17 @@
 ---
 name: fable-oracle
-description: "Involve Fable (a stronger reasoning model, running locally as persistent Claude sessions) in the current work — but ONLY when the user explicitly asks. Two modes: fable-consult (ask Fable one pointed question: a decision, a review, an unblock) and fable-orchestrate (hand Fable a whole mission to drive: it plans, spawns codex sub-agents for legwork, synthesizes, and delivers). Use when the user mentions fable, the oracle, consult, or orchestrate."
+description: "Consult Fable (a stronger reasoning model, running locally as persistent Claude sessions) with one pointed question — a decision between options, a review verdict, an unblock diagnosis — but ONLY when the user explicitly asks. Use when the user mentions fable, the oracle, or consult."
 ---
 
 # fable-oracle
 
-Fable is a more capable but far more expensive reasoning model available on this machine. **Its involvement is opt-in: do NOT consult or invoke Fable unless the user explicitly asks** (they mention fable, the oracle, "consult", "orchestrate", or equivalent). Work normally otherwise.
+Fable is a more capable but far more expensive reasoning model available on this machine. **Its involvement is opt-in: do NOT consult Fable unless the user explicitly asks** (they mention fable, the oracle, "consult", or equivalent). Work normally otherwise.
 
-Two exceptions where you *mention* Fable but still do not invoke it unasked: (1) you have failed at the same thing twice, or (2) the user is dissatisfied with your result. In those cases say, in one sentence, that a Fable consult or orchestration is available — and continue however the user directs.
+Two exceptions where you *mention* Fable but still do not invoke it unasked: (1) you have failed at the same thing twice, or (2) the user is dissatisfied with your result. In those cases say, in one sentence, that a Fable consult is available — and continue however the user directs.
 
-## Choosing the mode
+A consult is for one pointed question while YOU keep driving: a decision between options, a plan sanity-check, an unblock diagnosis, a review verdict. Whole missions (investigations, design work, large implementations) are not your concern: the user runs those through Fable directly. If you encounter `.fable-oracle/<slug>/` directories with ledgers, memos, or deliverables, that is Fable mission state — read it if relevant, never modify or delete it.
 
-- **`fable-consult`** — the user wants Fable's judgment on something specific while YOU keep driving the task: a decision between options, a plan sanity-check, an unblock diagnosis, a review verdict on completed work.
-- **`fable-orchestrate`** — the user hands Fable the whole problem: architecture investigations, research, design work, or large multi-step implementations. Fable plans, dispatches its own codex sub-agents for all legwork, synthesizes with its own judgment, and produces a standalone deliverable. You launch it, monitor it, and relay the result — you do not do the mission's work in parallel unless the user says so.
-
-Rule of thumb: "ask fable X" → consult. "Have fable figure out / design / investigate / own X" → orchestrate.
-
-## Mode 1 — consult
+## How to consult
 
 Two equivalent transports — same oracle, same per-task session state:
 
@@ -35,25 +30,6 @@ Run the shell form from the repo root. **Always pass `--task`** with a short sta
 ### Writing the brief — this determines everything
 
 Fable spot-checks but will not redo your research. A good brief is dense, grounded, honest: **task** (the user's ask, verbatim where it matters), **state** (what you did/learned, each claim with file:line evidence), **the ONE question** you need answered, **constraints** (invariants, prior user decisions). Per type: `decide` — each option with concrete evidence for/against and your lean; `unblock` — each attempt with the exact command and exact output (paste, never paraphrase), what you ruled out; `review` — the diff (or risky hunks verbatim), test commands with pasted output, acceptance criteria with claim-by-claim status ("tests pass" without output will be rejected); `direction` — repo orientation (prefer a codemap), the shape of the work, where you are uncertain.
-
-## Mode 2 — orchestrate
-
-Compose a mission statement, then launch detached and poll:
-
-```bash
-cat > /tmp/mission.md <<'EOF'
-Type: <investigation|coding|mixed>
-Goal: <what the user wants, verbatim where it matters>
-Context: <repo areas involved; links/branches/PRs; what is already known, with file refs>
-Constraints: <invariants, deadlines, user decisions already made>
-Done means: <what the user accepts as complete>
-EOF
-fable-orchestrate start --task "<task-slug>" --mission /tmp/mission.md --detach
-```
-
-Then poll `fable-orchestrate status --task "<task-slug>"` (every few minutes; missions run 10–60+ min). Status file moves `running → done | failed: …`. When done: read `.fable-oracle/<slug>/DELIVERABLE.md` and `ORCHESTRATOR_REPORT.md`, relay the substance to the user, link the deliverable. Follow-ups go to the same session: `echo "..." | fable-orchestrate followup --task "<slug>"`.
-
-While an orchestration runs, do not edit the same code Fable's sub-agents are working on. Do not launch orchestrations recursively from sub-agent context.
 
 ## Gathering context cheaply — RepoPrompt
 
