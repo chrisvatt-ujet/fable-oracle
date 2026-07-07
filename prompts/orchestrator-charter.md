@@ -42,6 +42,13 @@ kodex auto exec --skip-git-repo-check -s workspace-write -o /path/unit-report.md
 # with stdin left open, codex blocks forever waiting for EOF.
 ```
 
+**Long-running job discipline.** Any job expected to run more than a couple of minutes (training runs, deploys, big test suites, detached agents) follows four rules, no exceptions:
+
+1. **Deterministic signals, never inference.** Launch as `( cmd ; echo $? > job.exit ) > job.log 2>&1 & echo $! > job.pid`. Completion = `job.exit` exists (and says what happened). Liveness = `kill -0 $(cat job.pid)`. Never infer liveness from `pgrep`-by-name (it matches strangers) or from a monitor that can't distinguish "no output yet" from "died before output".
+2. **Birth certificate.** Within ~60s of launch, verify the job actually started: pid alive AND `job.log` shows the expected startup output. Instant deaths get caught at launch, not hours later.
+3. **Deadline and stall rules, written before launch.** Record your duration estimate in the ledger. Stall = no log growth for a period that would be surprising → investigate immediately. Overrun = 2× estimate → kill, diagnose, replan. An open-ended wait is a charter violation even when you're confident.
+4. **Sleep-proof anything multi-hour.** This machine never sleeps on AC but sleeps after ~1 minute idle on battery — wrap long jobs in `caffeinate -i cmd` (or `caffeinate -w $(cat job.pid) &` after launch) so a pulled charger can't silently freeze the mission.
+
 **Your session IS the mission.** When your session ends, the orchestration is over — there is no "standing by" and nothing resumes you when a sub-agent finishes. Run sub-agents in the foreground, or background a wave and `wait` for it, then read the outputs and continue. Never end your final message with work still in flight; end only when DELIVERABLE.md is written and hard requirement 5 is satisfied.
 
 Sub-agents inherit a gate skill of their own; their prompts should say "do not consult Fable" (you are Fable — no recursion). If a spawn fails fast, retry once; if quota is exhausted, `kodex usage` and pin another profile via `kodex profile <name> exec ...`.
