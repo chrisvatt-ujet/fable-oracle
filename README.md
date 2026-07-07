@@ -69,7 +69,7 @@ Env knobs: `FABLE_MODEL` (default `claude-fable-5`), `FABLE_MAX_TURNS` (default 
 bin/fable-consult              # consult shim: per-task sessions + ledger (claude -p --resume)
 bin/fable-orchestrate          # orchestrator shim: detached missions, status, followups
 bin/fable-orchestrate-finish   # post-processor for orchestration output
-bin/fable-consult-mcp          # MCP stdio server: fable_consult + fable_orchestrate tools
+bin/fable-consult-mcp          # MCP stdio server: fable_consult tool
 prompts/oracle-charter.md        # consult-Fable's role: decisive, read-only, evidence-demanding
 prompts/orchestrator-charter.md  # orchestrator-Fable's role: decompose, dispatch codex, synthesize, verify
 skill/fable-oracle/            # codex-side skill: opt-in consult rules, brief templates
