@@ -16,13 +16,14 @@ die() { echo "fable-orchestrate: $*" >&2; exit 2; }
 
 CMD="${1:-}"; case "$CMD" in start|status|followup) shift ;; *) die "first arg must be: start | status | followup" ;; esac
 
-TASK_SLUG="" MISSION_FILE="" DETACH=0
+TASK_SLUG="" MISSION_FILE="" DETACH=0 LIGHT=0
 ROOT="${FABLE_ORACLE_DIR:-$PWD/.fable-oracle}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --task)    TASK_SLUG="$2"; shift 2 ;;
     --mission) MISSION_FILE="$2"; shift 2 ;;
     --detach)  DETACH=1; shift ;;
+    --light)   LIGHT=1; shift ;;
     *) die "unknown option: $1" ;;
   esac
 done
@@ -64,6 +65,7 @@ if [[ "$CMD" == "start" ]]; then
   printf '%s\n' "$MISSION" > "$DIR/mission.md"
   {
     cat "$CHARTER"
+    [[ $LIGHT -eq 1 ]] && { echo; cat "$SCRIPT_DIR/../prompts/orchestrator-light-overlay.md"; }
     printf '\nmission header:\n- repo: %s\n- state_dir: %s\n- deliverable: %s/DELIVERABLE.md\n\n%s\n' \
       "$PWD" "$DIR" "$DIR" "$MISSION"
   } > "$DIR/prompt.md"
