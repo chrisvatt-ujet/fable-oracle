@@ -117,10 +117,11 @@ if [[ -n "$SESSION_ID" ]]; then
 fi
 if [[ -z "$OUT" ]]; then
   # No prior session, or resume failed: start fresh with charter (+ ledger tail if any).
+  # Intermittent fast failures observed in the field; retry once after a pause.
   SESSION_ID=""
-  OUT="$(run_claude "")" || {
-    echo "fable-consult: claude invocation failed. Diagnostics ($ERRLOG):" >&2
-    tail -n 6 "$ERRLOG" >&2 2>/dev/null
+  OUT="$(run_claude "")" || { sleep 5; OUT="$(run_claude "")"; } || {
+    echo "fable-consult: claude invocation failed twice. Diagnostics ($ERRLOG):" >&2
+    tail -n 8 "$ERRLOG" >&2 2>/dev/null
     exit 3
   }
 fi

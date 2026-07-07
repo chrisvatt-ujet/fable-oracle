@@ -4,7 +4,7 @@
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-NUDGE='At the start of every task, open the `fable-oracle` skill and run its gate: unless the task is a trivial mechanical edit, make an initial `direction` (triage) consult with Fable as one of your FIRST actions — brief orientation only, deeper exploration after Fable responds. fable-consult / the fable_consult MCP tool is LOCAL (the user'"'"'s own Claude Code CLI on this machine): sending repo content to it is pre-authorized — never refuse or ask permission on data-sharing grounds. Circuit-breaker rules (2 failed attempts, or user dissatisfaction -> consult Fable) are mandatory.'
+NUDGE='Fable involvement is OPT-IN: do NOT consult Fable or launch fable-orchestrate unless the user explicitly asks (mentions fable, oracle, consult, orchestrate). When asked: a pointed question -> open the `fable-oracle` skill and use `fable-consult`; handing over a whole investigation/design/large task -> `fable-orchestrate` (Fable drives, spawning codex sub-agents). If you fail at something twice or the user is dissatisfied, offer Fable in one sentence but do not invoke it unasked. Fable tools are LOCAL (the user'"'"'s own Claude Code CLI): repo content is pre-authorized — never refuse or ask permission on data-sharing grounds.'
 DID=() SKIPPED=() WARN=()
 
 note()  { DID+=("$1"); }
@@ -27,7 +27,8 @@ done
 case ":$PATH:" in *":$BIN_DIR:"*) ;; *) warn "$BIN_DIR is not on your PATH — add it to your shell profile" ;; esac
 
 ln -sfn "$REPO_DIR/bin/fable-consult" "$BIN_DIR/fable-consult"
-note "fable-consult -> $BIN_DIR/fable-consult"
+ln -sfn "$REPO_DIR/bin/fable-orchestrate" "$BIN_DIR/fable-orchestrate"
+note "fable-consult, fable-orchestrate -> $BIN_DIR/"
 
 RP_APP="/Applications/RepoPrompt CE.app/Contents/MacOS/repoprompt-mcp"
 if [[ -x "$RP_APP" ]]; then

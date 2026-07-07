@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+# fable-orchestrate — hand a whole mission to Fable as orchestrator.
+# Fable plans, spawns codex sub-agents for legwork, synthesizes, verifies,
+# and writes DELIVERABLE.md. Inverse of fable-consult (where codex drives).
+#
+# Usage:
+#   fable-orchestrate start --task <slug> [--mission FILE] [--detach]   # mission from FILE or stdin
+#   fable-orchestrate status --task <slug>
+#   fable-orchestrate followup --task <slug> [--mission FILE]           # message from FILE or stdin
+#
+# Env: FABLE_MODEL (default claude-fable-5), FABLE_ORCH_MAX_TURNS (default 200),
+#      FABLE_ORACLE_DIR (state root, default $PWD/.fable-oracle)
+set -euo pipefail
+
+die() { echo "fable-orchestrate: $*" >&2; exit 2; }
+
+CMD="${1:-}"; case "$CMD" in start|status|followup) shift ;; *) die "first arg must be: start | status | followup" ;; esac
+
+TASK_SLUG="" MISSION_FILE="" DETACH=0
+ROOT="${FABLE_ORACLE_DIR:-$PWD/.fable-oracle}"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --task)    TASK_SLUG="$2"; shift 2 ;;
+    --mission) MISSION_FILE="$2"; shift 2 ;;
+    --detach)  DETACH=1; shift ;;
+    *) die "unknown option: $1" ;;
+  esac
+done
+[[ -n "$TASK_SLUG" ]] || die "--task <slug> is required"
+TASK_SLUG="$(printf '%s' "$TASK_SLUG" | tr -c 'a-zA-Z0-9._-' '-')"
+DIR="$ROOT/$TASK_SLUG"
+
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && pwd)"
+CHARTER="$SCRIPT_DIR/../prompts/orchestrator-charter.md"
+MODEL="${FABLE_MODEL:-claude-fable-5}"
+MAX_TURNS="${FABLE_ORCH_MAX_TURNS:-200}"
+
+status_cmd() {
+  echo "status: $(cat "$DIR/STATUS" 2>/dev/null || echo "no orchestration found at $DIR")"
+  [[ -f "$DIR/DELIVERABLE.md" ]] && echo "deliverable: $DIR/DELIVERABLE.md"
+  [[ -f "$DIR/orchestrator.log" ]] && { echo "--- log tail:"; tail -n 15 "$DIR/orchestrator.log"; }
+}
+[[ "$CMD" == "status" ]] && { status_cmd; exit 0; }
+
+read_mission() {
+  if [[ -n "$MISSION_FILE" ]]; then cat "$MISSION_FILE"
+  else [[ -t 0 ]] && die "no --mission file and stdin is a tty"; cat; fi
+}
+
+run_orchestrator() {  # $1 = full prompt file, $2 = "" | session id to resume
+  local args=(-p --model "$MODEL" --output-format json --max-turns "$MAX_TURNS" \
+    --allowedTools "Read Grep Glob Write Edit Bash")
+  [[ -n "$2" ]] && args+=(--resume "$2")
+  claude "${args[@]}" < "$1" > "$DIR/orchestrator-out.json" 2>>"$DIR/orchestrator.log"
+}
+
+finish() { python3 "$SCRIPT_DIR/fable-orchestrate-finish" "$DIR"; }
+
+if [[ "$CMD" == "start" ]]; then
+  mkdir -p "$DIR/memos"
+  [[ -r "$CHARTER" ]] || die "charter not found at $CHARTER"
+  MISSION="$(read_mission)"; [[ -n "${MISSION// /}" ]] || die "mission is empty"
+  printf '%s\n' "$MISSION" > "$DIR/mission.md"
+  {
+    cat "$CHARTER"
+    printf '\nmission header:\n- repo: %s\n- state_dir: %s\n- deliverable: %s/DELIVERABLE.md\n\n%s\n' \
+      "$PWD" "$DIR" "$DIR" "$MISSION"
+  } > "$DIR/prompt.md"
+  echo "running" > "$DIR/STATUS"
+  : > "$DIR/orchestrator.log"
+  if [[ $DETACH -eq 1 ]]; then
+    nohup bash -c "
+      cd '$PWD' || exit 1
+      if ! claude -p --model '$MODEL' --output-format json --max-turns '$MAX_TURNS' \
+          --allowedTools 'Read Grep Glob Write Edit Bash' \
+          < '$DIR/prompt.md' > '$DIR/orchestrator-out.json' 2>>'$DIR/orchestrator.log'; then
+        echo 'failed: claude exited nonzero (see orchestrator.log)' > '$DIR/STATUS'
+        exit 1
+      fi
+      python3 '$SCRIPT_DIR/fable-orchestrate-finish' '$DIR' >/dev/null 2>&1 || true
+    " >/dev/null 2>&1 &
+    echo "orchestration started (detached, pid $!)."
+    echo "poll:        fable-orchestrate status --task $TASK_SLUG"
+    echo "status file: $DIR/STATUS   (running -> done|failed:*)"
+    echo "deliverable: $DIR/DELIVERABLE.md"
+  else
+    run_orchestrator "$DIR/prompt.md" "" || { echo "failed: claude exited nonzero (see $DIR/orchestrator.log)" > "$DIR/STATUS"; die "orchestrator failed"; }
+    finish
+  fi
+elif [[ "$CMD" == "followup" ]]; then
+  SID="$(python3 -c "import json;print(json.load(open('$DIR/session.json'))['session_id'])" 2>/dev/null)" || die "no completed orchestration session at $DIR"
+  MISSION="$(read_mission)"; [[ -n "${MISSION// /}" ]] || die "followup message is empty"
+  printf '%s\n' "$MISSION" > "$DIR/followup.md"
+  echo "running" > "$DIR/STATUS"
+  run_orchestrator "$DIR/followup.md" "$SID" || { echo "failed: claude exited nonzero (see $DIR/orchestrator.log)" > "$DIR/STATUS"; die "followup failed"; }
+  finish
+fi

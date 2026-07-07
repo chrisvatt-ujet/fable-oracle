@@ -4,15 +4,21 @@
 
 The economics: the task driver burns the vast majority of tokens (every file read, test run, and retry lands in its context). Putting the cheap model in the driver's seat and buying judgment à la carte inverts the cost curve without giving up the quality gate.
 
-## The process
+## The two modes
 
-1. **You give codex a goal** — no special phrasing needed.
-2. **Gate.** Codex self-assesses (difficulty 1–5; nature: mechanical / localized / judgment) plus objective triggers (multiple viable approaches, cross-cutting change, ambiguity, research/design work). Trivial + mechanical → codex just does it. Everything else → initial consult.
-3. **Initial consult.** Codex sends a dense brief to `fable-consult` — a persistent Fable session per task. Fable either *releases* it ("this is simple, go") or *takes direction*: plan, acceptance criteria, risks, checkpoints.
-4. **Codex executes** step by step, re-running the gate per step. It returns to Fable at checkpoints, at forks (`decide`), after 2 failed attempts or user dissatisfaction (`unblock` — mandatory, no third lap), or when scope grows.
-5. **Verification.** If Fable directed the task, it must end with a `review` consult — evidence required (diff + pasted test output). Fable's **APPROVE is the exit gate**; REVISE loops back.
+**Fable involvement is opt-in** — codex works normally until you explicitly ask for Fable (after two failures or visible dissatisfaction it will *offer* Fable in one sentence, never invoke it unasked).
 
-Every consult is recorded in `.fable-oracle/LEDGER.md` in the repo — a human-auditable trail of briefs, responses, and verdicts. Fable stays read-only: it thinks, codex does.
+**`fable-consult`** — codex keeps driving; Fable answers one pointed question. Four consult types (`direction`, `decide`, `unblock`, `review`), a persistent session per task slug, dense evidence-grounded briefs, and structured verdicts (`VERDICT / DIRECTIVES / RESEARCH_NEEDED / CHECKPOINTS`) that codex follows literally. Every consult lands in `.fable-oracle/<task>/LEDGER.md`. Fable stays read-only here: it thinks, codex does.
+
+**`fable-orchestrate`** — the inversion: Fable drives. For architecture investigations, research, design work, and large implementations, Fable becomes the orchestrator — it decomposes the mission, spawns codex sub-agents (cheap, tightly-scoped, each with a validation gate) for all legwork, synthesizes with its own judgment, pressure-tests its recommendation adversarially, and writes a standalone `DELIVERABLE.md` plus an auditable ledger and reference memos. For coding missions its sub-agents write every line; Fable specifies, reviews, and verifies. Runs detached (missions take 10–60+ min):
+
+```bash
+fable-orchestrate start --task my-investigation --mission mission.md --detach
+fable-orchestrate status --task my-investigation     # running -> done | failed
+echo "follow-up question" | fable-orchestrate followup --task my-investigation
+```
+
+Rule of thumb: *"ask fable X"* → consult. *"Have fable figure out / design / investigate / own X"* → orchestrate.
 
 ## Requirements
 
@@ -60,14 +66,15 @@ Env knobs: `FABLE_MODEL` (default `claude-fable-5`), `FABLE_MAX_TURNS` (default 
 ## What's in the box
 
 ```
-bin/fable-consult        # shim: session lifecycle + ledger (claude -p --resume under the hood)
-bin/fable-consult-mcp    # MCP stdio server exposing the shim as a fable_consult tool
-prompts/oracle-charter.md  # Fable's role: decisive, read-only, evidence-demanding, structured verdicts
-skill/fable-oracle/      # codex-side skill: gate, brief templates, loop discipline
+bin/fable-consult              # consult shim: per-task sessions + ledger (claude -p --resume)
+bin/fable-orchestrate          # orchestrator shim: detached missions, status, followups
+bin/fable-orchestrate-finish   # post-processor for orchestration output
+bin/fable-consult-mcp          # MCP stdio server: fable_consult + fable_orchestrate tools
+prompts/oracle-charter.md        # consult-Fable's role: decisive, read-only, evidence-demanding
+prompts/orchestrator-charter.md  # orchestrator-Fable's role: decompose, dispatch codex, synthesize, verify
+skill/fable-oracle/            # codex-side skill: opt-in rules, mode choice, brief templates
 install.sh
 ```
-
-Fable answers end in a parseable block — `VERDICT / DIRECTIVES / RESEARCH_NEEDED / CHECKPOINTS / CONFIDENCE` — which codex follows literally. Consult types: `direction`, `decide`, `unblock`, `review`.
 
 ### Delegation ladder (keeping Fable's tokens on reasoning)
 

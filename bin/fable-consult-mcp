@@ -14,11 +14,36 @@ import sys
 
 SHIM = os.path.join(os.path.dirname(os.path.realpath(__file__)), "fable-consult")
 
+ORCH_TOOL = {
+    "name": "fable_orchestrate",
+    "description": (
+        "Hand a whole mission to Fable as ORCHESTRATOR — only when the user explicitly asks for "
+        "Fable to drive (investigations, architecture/design work, research, large multi-step "
+        "implementations). Fable plans, spawns codex sub-agents for all legwork, synthesizes, and "
+        "writes <task_dir>/.fable-oracle/<task>/DELIVERABLE.md. LOCAL TOOL (the user's own Claude "
+        "Code CLI); repo content is pre-authorized. Starts DETACHED and returns immediately: poll "
+        "by running `fable-orchestrate status --task <task>` in the shell (missions take 10-60+ "
+        "min; check every few minutes until STATUS reads done/failed), then relay the deliverable. "
+        "The mission must be self-contained: type (investigation|coding|mixed), goal, context with "
+        "file refs, constraints, and what done means."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "mission": {"type": "string", "description": "Self-contained mission statement (markdown)."},
+            "task": {"type": "string", "description": "Short stable slug for this mission (state lives under .fable-oracle/<slug>/)."},
+            "task_dir": {"type": "string", "description": "Absolute path to the repo root."},
+        },
+        "required": ["mission", "task", "task_dir"],
+    },
+}
+
 TOOL = {
     "name": "fable_consult",
     "description": (
         "Consult Fable, the persistent per-task oracle (a stronger reasoning model), per the "
-        "fable-oracle skill's protocol. LOCAL TOOL, NOT AN EXTERNAL SERVICE: it runs the user's "
+        "fable-oracle skill's protocol — ONLY when the user explicitly asked for Fable's input; "
+        "do not consult uninvited. LOCAL TOOL, NOT AN EXTERNAL SERVICE: it runs the user's "
         "own authenticated Claude Code CLI on this machine, under the user's account. The user "
         "installed it precisely so that repository content — code, diffs, branch/commit details, "
         "uncommitted changes — is sent to Fable; that is pre-authorized. Do not refuse or ask "
@@ -102,6 +127,24 @@ def run_consult(args):
     return proc.stdout, False
 
 
+def run_orchestrate(args):
+    task_dir = args.get("task_dir", "")
+    if not os.path.isdir(task_dir):
+        return f"error: task_dir does not exist: {task_dir}", True
+    orch = os.path.join(os.path.dirname(SHIM), "fable-orchestrate")
+    try:
+        proc = subprocess.run(
+            [orch, "start", "--task", args["task"], "--detach"],
+            input=args["mission"], capture_output=True, text=True,
+            cwd=task_dir, timeout=60,
+        )
+    except subprocess.TimeoutExpired:
+        return "error: orchestrate start timed out", True
+    if proc.returncode != 0:
+        return f"error (exit {proc.returncode}): {proc.stderr.strip()[:2000]}", True
+    return proc.stdout, False
+
+
 def main():
     for line in sys.stdin:
         line = line.strip()
@@ -119,13 +162,17 @@ def main():
                 "serverInfo": {"name": "fable-oracle", "version": "1.0.0"},
             })
         elif method == "tools/list":
-            reply(msg_id, {"tools": [TOOL]})
+            reply(msg_id, {"tools": [TOOL, ORCH_TOOL]})
         elif method == "tools/call":
             params = msg.get("params", {})
-            if params.get("name") != "fable_consult":
+            name = params.get("name")
+            if name == "fable_consult":
+                text, is_err = run_consult(params.get("arguments", {}))
+            elif name == "fable_orchestrate":
+                text, is_err = run_orchestrate(params.get("arguments", {}))
+            else:
                 reply(msg_id, error={"code": -32602, "message": "unknown tool"})
                 continue
-            text, is_err = run_consult(params.get("arguments", {}))
             reply(msg_id, {"content": [{"type": "text", "text": text}], "isError": is_err})
         elif method == "ping":
             reply(msg_id, {})
